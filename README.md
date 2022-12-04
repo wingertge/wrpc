@@ -11,7 +11,7 @@ calls the API endpoint. Inspired by tRPC.
 
 ```rust
 #[rpc(get("/api/user/:id"))]
-pub async fn handler(Path(id): Path<u32>) -> Json<User> {
+pub async fn get_user(Path(id): Path<u32>) -> Json<User> {
     // Do things here
     Json(User)
 }
@@ -21,7 +21,7 @@ This will gate the handler to only exist on non-WASM targets and create a
 WASM side function somewhat like this:
 
 ```rust
-pub async fn handler(id: u32) -> Result<User, reqwasm::Error> {
+pub async fn get_user(id: u32) -> Result<User, reqwasm::Error> {
     reqwasm::http::Request::get(&format!("/api/user/{id}"))
         .send()
         .await?

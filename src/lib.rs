@@ -11,7 +11,7 @@
 //! # struct User;
 //!
 //! #[rpc(get("/api/user/:id"))]
-//! pub async fn handler(Path(id): Path<u32>) -> Json<User> {
+//! pub async fn get_user(Path(id): Path<u32>) -> Json<User> {
 //!     // Do things here
 //!     Json(User)
 //! }
@@ -23,7 +23,7 @@
 //! ```
 //! # #[derive(serde::Serialize, serde::Deserialize)]
 //! # struct User;
-//! pub async fn handler(id: u32) -> Result<User, reqwasm::Error> {
+//! pub async fn get_user(id: u32) -> Result<User, reqwasm::Error> {
 //!     reqwasm::http::Request::get(&format!("/api/user/{id}"))
 //!         .send()
 //!         .await?
