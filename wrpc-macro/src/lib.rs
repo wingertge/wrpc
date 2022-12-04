@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
 use syn::{
-    parse::Parse, punctuated::Punctuated, spanned::Spanned, token::Comma,
+    parse::Parse, parse_quote, punctuated::Punctuated, spanned::Spanned, token::Comma,
     AngleBracketedGenericArguments, AttributeArgs, FnArg, GenericArgument, Ident, ItemFn, Lit,
     Meta, MetaList, NestedMeta, Pat, PatTuple, PatTupleStruct, PatType, Path, PathArguments,
     ReturnType, Signature, Token, Type, TypePath, TypeReference, TypeTuple,
@@ -358,6 +358,8 @@ fn transform_args(args: &Punctuated<FnArg, Comma>) -> TransformedArgs {
         }) = &*arg.ty
         {
             if segments.last().unwrap().ident == "String" {
+                let ty = parse_quote!(&str);
+                arg.ty = Box::new(ty);
                 text_arg = Some(arg.clone());
                 transformed_signature.push(arg);
             } else {

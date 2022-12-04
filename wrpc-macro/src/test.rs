@@ -148,7 +148,7 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler(payload: String) -> Result<String, ::reqwasm::Error> {
+            pub async fn handler(payload: &str) -> Result<String, ::reqwasm::Error> {
                 ::reqwasm::http::Request::post("/api/simple_input_works")
                     .body(payload)
                     .send()
