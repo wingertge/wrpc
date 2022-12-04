@@ -1,0 +1,26 @@
+[package]
+name = "wrpc-macro"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "1", features = ["full", "extra-traits"] }
+
+[dev-dependencies]
+compiletest_rs = "0.9"
+serde_qs = "0.10"
+serde = "1"
+serde_json = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+axum = "0.6"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+reqwasm = "0.5"
+
+[lib]
+proc-macro = true
