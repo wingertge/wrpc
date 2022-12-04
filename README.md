@@ -5,6 +5,7 @@ This crate introduces a simple attribute macro that transforms your API
 handler's signature into a fully typed client side request function that
 calls the API endpoint. Inspired by tRPC.
 
+![CI](https://github.com/wingertge/wrpc/actions/workflows/ci.yml/badge.svg)
 
 # Quick Usage
 
