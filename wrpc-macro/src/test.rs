@@ -150,7 +150,7 @@ pub mod axum {
             #[cfg(target_arch = "wasm32")]
             pub async fn handler(payload: &str) -> Result<String, ::reqwasm::Error> {
                 ::reqwasm::http::Request::post("/api/simple_input_works")
-                    .body(payload)
+                    .body(payload.to_string())
                     .send()
                     .await?
                     .text()
@@ -181,9 +181,9 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler(payload: MyType) -> Result<String, ::reqwasm::Error> {
+            pub async fn handler(payload: &MyType) -> Result<String, ::reqwasm::Error> {
                 ::reqwasm::http::Request::post("/api/json_input_works")
-                    .body(::serde_json::to_string(&payload))
+                    .body(::serde_json::to_string(payload))
                     .send()
                     .await?
                     .text()
@@ -278,8 +278,8 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler(query: Pagination) -> Result<String, ::reqwasm::Error> {
-                let query = ::serde_qs::to_string(&query);
+            pub async fn handler(query: &Pagination) -> Result<String, ::reqwasm::Error> {
+                let query = ::serde_qs::to_string(query);
                 ::reqwasm::http::Request::get(&::std::format!("/api/query_works?{query}"))
                     .send()
                     .await?
@@ -311,8 +311,8 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler(id: u32, query: Pagination) -> Result<String, ::reqwasm::Error> {
-                let query = ::serde_qs::to_string(&query);
+            pub async fn handler(id: u32, query: &Pagination) -> Result<String, ::reqwasm::Error> {
+                let query = ::serde_qs::to_string(query);
                 ::reqwasm::http::Request::get(&::std::format!("/api/query_and_path_segments_work/{id}?{query}"))
                     .send()
                     .await?
@@ -344,9 +344,9 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler(payload: MyType) -> Result<String, ::reqwasm::Error> {
+            pub async fn handler(payload: &MyType) -> Result<String, ::reqwasm::Error> {
                 ::reqwasm::http::Request::post("/api/json_input_works")
-                    .body(::serde_json::to_string(&payload))
+                    .body(::serde_json::to_string(payload))
                     .send()
                     .await?
                     .text()

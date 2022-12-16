@@ -155,16 +155,16 @@ fn rpc_impl(
     };
     let query_binding = if let Some(query) = args.query {
         let pat = query.pat;
-        quote!(let #pat = ::serde_qs::to_string(&#pat);)
+        quote!(let #pat = ::serde_qs::to_string(#pat);)
     } else {
         quote!()
     };
     let body = if let Some(json) = args.json_arg {
         let name = json.pat;
-        quote!(.body(::serde_json::to_string(&#name)))
+        quote!(.body(::serde_json::to_string(#name)))
     } else if let Some(text_arg) = args.text_arg {
         let name = text_arg.pat;
-        quote!(.body(#name))
+        quote!(.body(#name.to_string()))
     } else {
         quote!()
     };
@@ -345,11 +345,13 @@ fn transform_args(args: &Punctuated<FnArg, Comma>) -> TransformedArgs {
             _ => {}
         }
         if let Some(json_inner) = extract_json_inner_type(&arg.ty) {
-            arg.ty = Box::new(json_inner);
+            let ty = parse_quote!(&#json_inner);
+            arg.ty = Box::new(ty);
             json_arg = Some(arg.clone());
             transformed_signature.push(arg);
         } else if let Some(query_inner) = extract_query_inner_type(&arg.ty) {
-            arg.ty = Box::new(query_inner);
+            let ty = parse_quote!(&#query_inner);
+            arg.ty = Box::new(ty);
             query = Some(arg.clone());
             transformed_signature.push(arg);
         } else if let Type::Path(TypePath {
