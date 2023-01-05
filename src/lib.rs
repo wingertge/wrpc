@@ -80,8 +80,3 @@
 pub use wrpc_macro::rpc;
 
 pub type Result<T> = std::result::Result<T, ::reqwasm::Error>;
-
-#[rpc(get("/test/hello"))]
-pub async fn handler() -> String {
-    "Hello world".to_string()
-}
