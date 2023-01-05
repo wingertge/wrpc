@@ -1,9 +1,12 @@
 use syn::{parenthesized, parse::Parse, Ident, LitStr, Token, Type};
 
+use crate::argument::ArgumentType;
+
+#[derive(Debug)]
 pub struct RpcAttribute {
     pub method: Ident,
     pub path: String,
-    pub return_override: Option<Type>,
+    pub return_override: Option<ArgumentType>,
 }
 
 impl Parse for RpcAttribute {
@@ -13,7 +16,7 @@ impl Parse for RpcAttribute {
             .into_iter()
             .map(|option| match option {
                 AttributeOption::Method(method, path) => (Some(method), Some(path), None),
-                AttributeOption::ReturnOverride(ty) => (None, None, Some(ty)),
+                AttributeOption::ReturnOverride(ty) => (None, None, Some(ArgumentType::Json(ty))),
             })
             .fold((None, None, None), |(a1, b1, c1), (a2, b2, c2)| {
                 (a1.or(a2), b1.or(b2), c1.or(c2))

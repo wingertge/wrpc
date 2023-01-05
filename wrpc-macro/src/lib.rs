@@ -1,19 +1,13 @@
-use argument::Argument;
-use attr::RpcAttribute;
+use argument::{Argument, ArgumentType};
 use proc_macro::TokenStream;
-use proc_macro2::Span;
 use quote::quote;
-use syn::{
-    parse::Parse, parse_quote, punctuated::Punctuated, spanned::Spanned, token::Comma,
-    AngleBracketedGenericArguments, AttributeArgs, FnArg, GenericArgument, Ident, ItemFn, Pat,
-    PatTuple, PatTupleStruct, PatType, Path, PathArguments, ReturnType, Signature, Token, Type,
-    TypePath, TypeReference, TypeTuple,
-};
+use syn::{spanned::Spanned, Ident, ItemFn, ReturnType, Signature, Type};
 
 extern crate proc_macro;
 
 mod argument;
 mod attr;
+mod codegen;
 #[cfg(test)]
 mod test;
 
@@ -85,292 +79,21 @@ fn rpc_impl(
     item: proc_macro2::TokenStream,
 ) -> syn::Result<proc_macro2::TokenStream> {
     let handler: ItemFn = syn::parse2(item)?;
+    let vis = &handler.vis;
     let sig: RpcSignature = handler.sig.clone().try_into()?;
+    let options = syn::parse2(attr)?;
 
-    let RpcAttribute {
-        method,
-        path,
-        return_override,
-    } = syn::parse2(attr).expect("Failed to parse rpc attribute");
+    let client_fn = sig.to_tokens(&options);
 
-    let ItemFn {
-        vis,
-        sig:
-            Signature {
-                ident,
-                inputs,
-                output,
-                ..
-            },
-        ..
-    } = &handler;
-    let args = transform_args(inputs);
-    let client_signature = args.transformed_signature;
-    let return_type = return_override.clone().unwrap_or_else(|| match output {
-        ReturnType::Default => panic!("Handlers must specify a return type"),
-        ReturnType::Type(_, t) => (**t).to_owned(),
-    });
-    let return_type = if let Type::Reference(TypeReference { elem, .. }) = &return_type {
-        if let Type::Path(TypePath { path, .. }) = &**elem {
-            if path.segments.last().unwrap().ident == "str" {
-                Type::Path(TypePath {
-                    path: Ident::new("String", Span::call_site()).into(),
-                    qself: None,
-                })
-            } else {
-                Type::Path(TypePath {
-                    qself: None,
-                    path: path.to_owned(),
-                })
-            }
-        } else {
-            return_type
-        }
-    } else {
-        return_type
-    };
-    let json_inner_type = extract_json_inner_type(&return_type);
-    let result_extractor = if json_inner_type.is_some() || return_override.is_some() {
-        Ident::new("json", return_type.span())
-    } else {
-        Ident::new("text", return_type.span())
-    };
-    let return_type = json_inner_type.unwrap_or(return_type);
-    let mut url_needs_formatting = false;
-    let path = if !args.path_segments.is_empty() {
-        url_needs_formatting = true;
-        path.split('/')
-            .map(|segment| {
-                let mut segment = segment.to_string();
-                if segment.starts_with(':') {
-                    segment = segment.replace(':', "{");
-                    segment += "}";
-                    segment
-                } else {
-                    segment
-                }
-            })
-            .collect::<Vec<String>>()
-            .join("/")
-    } else {
-        path
-    };
-    let path = if let Some(query) = &args.query {
-        url_needs_formatting = true;
-        let pat = &query.pat;
-        format!("{path}?{{{}}}", quote!(#pat))
-    } else {
-        path
-    };
-    let query_binding = if let Some(query) = args.query {
-        let pat = query.pat;
-        quote!(let #pat = ::serde_qs::to_string(#pat);)
-    } else {
-        quote!()
-    };
-    let body = if let Some(json) = args.json_arg {
-        let name = json.pat;
-        quote!(.body(::serde_json::to_string(#name)))
-    } else if let Some(text_arg) = args.text_arg {
-        let name = text_arg.pat;
-        quote!(.body(#name.as_ref()))
-    } else {
-        quote!()
-    };
-    let path = if url_needs_formatting {
-        quote!(&::std::format!(#path))
-    } else {
-        quote!(#path)
-    };
-
-    Ok(quote! {
+    let tokens_new = quote! {
         #[cfg(not(target_arch = "wasm32"))]
         #handler
 
         #[cfg(target_arch = "wasm32")]
-        #vis async fn #ident(#(#client_signature),*) -> ::std::result::Result<#return_type, ::reqwasm::Error> {
-            #query_binding
-            ::reqwasm::http::Request::#method(#path)
-                #body
-                .send()
-                .await?
-                .#result_extractor()
-                .await
-        }
-    })
-}
+        #vis async fn #client_fn
+    };
 
-fn extract_json_inner_type(t: &Type) -> Option<Type> {
-    extract_inner_type(t, "Json")
-}
-
-fn extract_query_inner_type(t: &Type) -> Option<Type> {
-    extract_inner_type(t, "Query")
-}
-
-enum PathSegmentType {
-    Tuple(TypeTuple),
-    Other(Type),
-}
-
-fn extract_path_inner_type(t: &Type) -> Option<PathSegmentType> {
-    extract_inner_type(t, "Path").map(|t| match t {
-        Type::Tuple(tuple) => PathSegmentType::Tuple(tuple),
-        _ => PathSegmentType::Other(t),
-    })
-}
-
-fn extract_inner_type(t: &Type, type_name: &str) -> Option<Type> {
-    match t {
-        Type::Path(TypePath { path, .. }) => {
-            let last = path.segments.last().unwrap();
-            if last.ident == type_name {
-                match &last.arguments {
-                    PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-                        args, ..
-                    }) if args.len() == 1 => {
-                        if let GenericArgument::Type(t) = &args[0] {
-                            Some(t.to_owned())
-                        } else {
-                            None
-                        }
-                    }
-                    _ => None,
-                }
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
-}
-
-struct TransformedArgs {
-    transformed_signature: Vec<PatType>,
-    query: Option<PatType>,
-    json_arg: Option<PatType>,
-    path_segments: Vec<PatType>,
-    text_arg: Option<PatType>,
-}
-
-fn transform_args(args: &Punctuated<FnArg, Comma>) -> TransformedArgs {
-    let mut transformed_signature = Vec::with_capacity(args.len());
-    let mut query = None;
-    let mut json_arg = None;
-    let mut path_segments = Vec::new();
-    let mut text_arg = None;
-
-    for arg in args.into_iter().filter_map(|arg| match arg {
-        FnArg::Typed(pat) => Some(pat),
-        _ => None,
-    }) {
-        let mut arg = arg.clone();
-
-        if let Some(ty) = extract_path_inner_type(&arg.ty) {
-            match ty {
-                PathSegmentType::Tuple(tuple) => match &*arg.pat {
-                    Pat::TupleStruct(PatTupleStruct {
-                        pat: PatTuple { elems, .. },
-                        ..
-                    }) => {
-                        let elems: Vec<&Pat> = match elems.first().unwrap() {
-                            Pat::Tuple(PatTuple { elems, .. }) => elems.into_iter().collect(),
-                            _ => panic!("Path segments must be destructured"),
-                        };
-                        for (id, elem) in elems.into_iter().enumerate() {
-                            let mut arg = arg.clone();
-                            arg.pat = Box::new(elem.to_owned());
-                            arg.ty = Box::new(tuple.elems[id].to_owned());
-                            transformed_signature.push(arg.clone());
-                            path_segments.push(arg.clone());
-                        }
-                    }
-                    _ => panic!("Path segments must be destructured"),
-                },
-                PathSegmentType::Other(ty) => {
-                    match &*arg.pat {
-                        Pat::TupleStruct(PatTupleStruct {
-                            pat: PatTuple { elems, .. },
-                            ..
-                        }) if elems.len() == 1 => {
-                            arg.pat = Box::new(elems.first().unwrap().to_owned());
-                        }
-                        _ => {}
-                    }
-                    arg.ty = Box::new(ty);
-                    transformed_signature.push(arg.clone());
-                    path_segments.push(arg);
-                }
-            }
-            continue;
-        }
-
-        match &*arg.pat {
-            Pat::TupleStruct(PatTupleStruct {
-                pat: PatTuple { elems, .. },
-                ..
-            }) if elems.len() == 1 => {
-                arg.pat = Box::new(elems.first().unwrap().to_owned());
-            }
-            _ => {}
-        }
-        if let Some(json_inner) = extract_json_inner_type(&arg.ty) {
-            let ty = parse_quote!(&#json_inner);
-            arg.ty = Box::new(ty);
-            json_arg = Some(arg.clone());
-            transformed_signature.push(arg);
-        } else if let Some(query_inner) = extract_query_inner_type(&arg.ty) {
-            let ty = parse_quote!(&#query_inner);
-            arg.ty = Box::new(ty);
-            query = Some(arg.clone());
-            transformed_signature.push(arg);
-        } else if let Type::Path(TypePath {
-            path: Path { segments, .. },
-            ..
-        }) = &*arg.ty
-        {
-            if segments.last().unwrap().ident == "String" {
-                let ty = parse_quote!(impl AsRef<str>);
-                arg.ty = Box::new(ty);
-                text_arg = Some(arg.clone());
-                transformed_signature.push(arg);
-            } else {
-                println!("Skipped arg {arg:#?} because it didn't fit any extractor pattern");
-            }
-        } else {
-            println!("Skipped arg {arg:#?} because it didn't fit any extractor pattern");
-        }
-    }
-
-    TransformedArgs {
-        transformed_signature,
-        query,
-        json_arg,
-        path_segments,
-        text_arg,
-    }
-}
-
-struct AttrArgs(AttributeArgs);
-
-impl Parse for AttrArgs {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let mut metas = Vec::new();
-
-        loop {
-            if input.is_empty() {
-                break;
-            }
-            let value = input.parse()?;
-            metas.push(value);
-            if input.is_empty() {
-                break;
-            }
-            input.parse::<Token![,]>()?;
-        }
-
-        Ok(AttrArgs(metas))
-    }
+    Ok(tokens_new)
 }
 
 #[derive(Debug)]
@@ -380,7 +103,7 @@ struct RpcSignature {
     pub query: Option<(Ident, Type)>,
     pub body: Option<Ident>,
     pub json: Option<(Ident, Type)>,
-    pub return_type: Type,
+    pub return_type: ArgumentType,
 }
 
 impl TryFrom<Signature> for RpcSignature {
@@ -408,7 +131,7 @@ impl TryFrom<Signature> for RpcSignature {
             query: None,
             body: None,
             json: None,
-            return_type: *ret,
+            return_type: ret.try_into()?,
         };
 
         for arg in args {

@@ -20,7 +20,7 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler() -> Result<String, ::reqwasm::Error> {
+            pub async fn handler() -> ::wrpc::Result<String> {
                 ::reqwasm::http::Request::get("/api/simple_handler_works")
                     .send()
                     .await?
@@ -30,7 +30,7 @@ pub mod axum {
         };
 
         assert_eq!(
-            rpc_impl(attr_tokens, handler_tokens).to_string(),
+            rpc_impl(attr_tokens, handler_tokens).unwrap().to_string(),
             expected.to_string()
         );
     }
@@ -52,7 +52,7 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler() -> Result<String, ::reqwasm::Error> {
+            pub async fn handler() -> ::wrpc::Result<String> {
                 ::reqwasm::http::Request::get("/api/string_coercion_works")
                     .send()
                     .await?
@@ -62,7 +62,7 @@ pub mod axum {
         };
 
         assert_eq!(
-            rpc_impl(attr_tokens, handler_tokens).to_string(),
+            rpc_impl(attr_tokens, handler_tokens).unwrap().to_string(),
             expected.to_string()
         );
     }
@@ -84,7 +84,7 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler() -> Result<MyType, ::reqwasm::Error> {
+            pub async fn handler() -> ::wrpc::Result<MyType> {
                 ::reqwasm::http::Request::get("/api/json_response_works")
                     .send()
                     .await?
@@ -94,7 +94,7 @@ pub mod axum {
         };
 
         assert_eq!(
-            rpc_impl(attr_tokens, handler_tokens).to_string(),
+            rpc_impl(attr_tokens, handler_tokens).unwrap().to_string(),
             expected.to_string()
         );
     }
@@ -116,7 +116,7 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler() -> Result<MyType, ::reqwasm::Error> {
+            pub async fn handler() -> ::wrpc::Result<MyType> {
                 ::reqwasm::http::Request::get("/api/type_override_works")
                     .send()
                     .await?
@@ -126,7 +126,7 @@ pub mod axum {
         };
 
         assert_eq!(
-            rpc_impl(attr_tokens, handler_tokens).to_string(),
+            rpc_impl(attr_tokens, handler_tokens).unwrap().to_string(),
             expected.to_string()
         );
     }
@@ -148,9 +148,9 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler(payload: &str) -> Result<String, ::reqwasm::Error> {
+            pub async fn handler(payload: &str) -> ::wrpc::Result<String> {
                 ::reqwasm::http::Request::post("/api/simple_input_works")
-                    .body(payload.to_string())
+                    .body(::std::string::ToString::to_string(payload))
                     .send()
                     .await?
                     .text()
@@ -159,7 +159,7 @@ pub mod axum {
         };
 
         assert_eq!(
-            rpc_impl(attr_tokens, handler_tokens).to_string(),
+            rpc_impl(attr_tokens, handler_tokens).unwrap().to_string(),
             expected.to_string()
         );
     }
@@ -181,7 +181,7 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler(payload: &MyType) -> Result<String, ::reqwasm::Error> {
+            pub async fn handler(payload: &MyType) -> ::wrpc::Result<String> {
                 ::reqwasm::http::Request::post("/api/json_input_works")
                     .body(::serde_json::to_string(payload))
                     .send()
@@ -192,7 +192,7 @@ pub mod axum {
         };
 
         assert_eq!(
-            rpc_impl(attr_tokens, handler_tokens).to_string(),
+            rpc_impl(attr_tokens, handler_tokens).unwrap().to_string(),
             expected.to_string()
         );
     }
@@ -214,7 +214,7 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler(id: u32) -> Result<String, ::reqwasm::Error> {
+            pub async fn handler(id: u32) -> ::wrpc::Result<String> {
                 ::reqwasm::http::Request::get(&::std::format!("/api/path_segment_works/{id}"))
                     .send()
                     .await?
@@ -224,7 +224,7 @@ pub mod axum {
         };
 
         assert_eq!(
-            rpc_impl(attr_tokens, handler_tokens).to_string(),
+            rpc_impl(attr_tokens, handler_tokens).unwrap().to_string(),
             expected.to_string()
         );
     }
@@ -246,7 +246,7 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler(team: String, id: u32) -> Result<String, ::reqwasm::Error> {
+            pub async fn handler(team: String, id: u32) -> ::wrpc::Result<String> {
                 ::reqwasm::http::Request::get(&::std::format!("/api/multiple_path_segments_work/team/{team}/id/{id}"))
                     .send()
                     .await?
@@ -256,7 +256,7 @@ pub mod axum {
         };
 
         assert_eq!(
-            rpc_impl(attr_tokens, handler_tokens).to_string(),
+            rpc_impl(attr_tokens, handler_tokens).unwrap().to_string(),
             expected.to_string()
         );
     }
@@ -278,9 +278,9 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler(query: &Pagination) -> Result<String, ::reqwasm::Error> {
-                let query = ::serde_qs::to_string(query);
-                ::reqwasm::http::Request::get(&::std::format!("/api/query_works?{query}"))
+            pub async fn handler(query: &Pagination) -> ::wrpc::Result<String> {
+                let __query = ::serde_qs::to_string(query);
+                ::reqwasm::http::Request::get(&::std::format!("/api/query_works?{__query}"))
                     .send()
                     .await?
                     .text()
@@ -289,7 +289,7 @@ pub mod axum {
         };
 
         assert_eq!(
-            rpc_impl(attr_tokens, handler_tokens).to_string(),
+            rpc_impl(attr_tokens, handler_tokens).unwrap().to_string(),
             expected.to_string()
         );
     }
@@ -311,9 +311,9 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler(id: u32, query: &Pagination) -> Result<String, ::reqwasm::Error> {
-                let query = ::serde_qs::to_string(query);
-                ::reqwasm::http::Request::get(&::std::format!("/api/query_and_path_segments_work/{id}?{query}"))
+            pub async fn handler(id: u32, query: &Pagination) -> ::wrpc::Result<String> {
+                let __query = ::serde_qs::to_string(query);
+                ::reqwasm::http::Request::get(&::std::format!("/api/query_and_path_segments_work/{id}?{__query}"))
                     .send()
                     .await?
                     .text()
@@ -322,7 +322,7 @@ pub mod axum {
         };
 
         assert_eq!(
-            rpc_impl(attr_tokens, handler_tokens).to_string(),
+            rpc_impl(attr_tokens, handler_tokens).unwrap().to_string(),
             expected.to_string()
         );
     }
@@ -344,7 +344,7 @@ pub mod axum {
             }
 
             #[cfg(target_arch = "wasm32")]
-            pub async fn handler(payload: &MyType) -> Result<String, ::reqwasm::Error> {
+            pub async fn handler(payload: &MyType) -> ::wrpc::Result<String> {
                 ::reqwasm::http::Request::post("/api/json_input_works")
                     .body(::serde_json::to_string(payload))
                     .send()
@@ -355,7 +355,7 @@ pub mod axum {
         };
 
         assert_eq!(
-            rpc_impl(attr_tokens, handler_tokens).to_string(),
+            rpc_impl(attr_tokens, handler_tokens).unwrap().to_string(),
             expected.to_string()
         );
     }

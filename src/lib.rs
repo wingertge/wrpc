@@ -79,4 +79,9 @@
 
 pub use wrpc_macro::rpc;
 
-// Might have to put non-proc-macro stuff in here, that's why there's two crates
+pub type Result<T> = std::result::Result<T, ::reqwasm::Error>;
+
+#[rpc(get("/test/hello"))]
+pub async fn handler() -> String {
+    "Hello world".to_string()
+}

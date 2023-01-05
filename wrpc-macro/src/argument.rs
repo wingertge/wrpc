@@ -1,5 +1,6 @@
 use syn::{
     spanned::Spanned, AngleBracketedGenericArguments, FnArg, GenericArgument, Ident, Pat, Type,
+    TypeReference,
 };
 
 pub enum Argument {
@@ -119,6 +120,7 @@ impl ArgumentName {
     }
 }
 
+#[derive(Debug)]
 pub enum ArgumentType {
     Json(Type),
     Query(Type),
@@ -133,6 +135,11 @@ impl TryFrom<Box<Type>> for ArgumentType {
     fn try_from(value: Box<Type>) -> syn::Result<Self> {
         let ty = match *value {
             Type::Path(path) => Ok(path.path),
+            Type::Reference(TypeReference { elem, .. }) => match *elem {
+                Type::Path(path) => Ok(path.path),
+                value => Err(syn::Error::new(value.span(), "Argument type must be path")),
+            },
+            Type::ImplTrait(_) => return Ok(Self::Ignored),
             value => Err(syn::Error::new(value.span(), "Argument type must be path")),
         }?;
 
@@ -147,6 +154,7 @@ impl TryFrom<Box<Type>> for ArgumentType {
             _ => None,
         };
 
+        #[allow(clippy::unnecessary_unwrap)] // The if let alternative is unstable
         if last.ident == "Json" && arg.is_some() {
             Ok(ArgumentType::Json(arg.unwrap()))
         } else if last.ident == "Query" && arg.is_some() {
@@ -161,7 +169,7 @@ impl TryFrom<Box<Type>> for ArgumentType {
                 )),
             }?;
             Ok(ArgumentType::Path(inner_types))
-        } else if last.ident == "String" {
+        } else if last.ident == "String" || last.ident == "str" {
             Ok(ArgumentType::Body)
         } else {
             Ok(ArgumentType::Ignored)
