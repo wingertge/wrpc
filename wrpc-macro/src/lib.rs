@@ -1,15 +1,19 @@
+use argument::Argument;
+use attr::RpcAttribute;
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::quote;
 use syn::{
     parse::Parse, parse_quote, punctuated::Punctuated, spanned::Spanned, token::Comma,
-    AngleBracketedGenericArguments, AttributeArgs, FnArg, GenericArgument, Ident, ItemFn, Lit,
-    Meta, MetaList, NestedMeta, Pat, PatTuple, PatTupleStruct, PatType, Path, PathArguments,
-    ReturnType, Signature, Token, Type, TypePath, TypeReference, TypeTuple,
+    AngleBracketedGenericArguments, AttributeArgs, FnArg, GenericArgument, Ident, ItemFn, Pat,
+    PatTuple, PatTupleStruct, PatType, Path, PathArguments, ReturnType, Signature, Token, Type,
+    TypePath, TypeReference, TypeTuple,
 };
 
 extern crate proc_macro;
 
+mod argument;
+mod attr;
 #[cfg(test)]
 mod test;
 
@@ -70,20 +74,25 @@ mod test;
 ///
 #[proc_macro_attribute]
 pub fn rpc(attr: TokenStream, item: TokenStream) -> TokenStream {
-    rpc_impl(attr.into(), item.into()).into()
+    match rpc_impl(attr.into(), item.into()) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.to_compile_error().into(),
+    }
 }
 
 fn rpc_impl(
     attr: proc_macro2::TokenStream,
     item: proc_macro2::TokenStream,
-) -> proc_macro2::TokenStream {
-    //let args = parse_macro_input!(attr as AttributeArgs);
-    //let handler = parse_macro_input!(item as ItemFn);
-    let AttrArgs(args) = syn::parse2(attr).expect("Failed to parse");
-    let handler: ItemFn = syn::parse2(item).expect("Failed to parse");
+) -> syn::Result<proc_macro2::TokenStream> {
+    let handler: ItemFn = syn::parse2(item)?;
+    let sig: RpcSignature = handler.sig.clone().try_into()?;
 
-    let (method, path) = method_and_path(&args);
-    let type_override = type_override(&args).map(|path| Type::Path(TypePath { qself: None, path }));
+    let RpcAttribute {
+        method,
+        path,
+        return_override,
+    } = syn::parse2(attr).expect("Failed to parse rpc attribute");
+
     let ItemFn {
         vis,
         sig:
@@ -97,7 +106,7 @@ fn rpc_impl(
     } = &handler;
     let args = transform_args(inputs);
     let client_signature = args.transformed_signature;
-    let return_type = type_override.clone().unwrap_or_else(|| match output {
+    let return_type = return_override.clone().unwrap_or_else(|| match output {
         ReturnType::Default => panic!("Handlers must specify a return type"),
         ReturnType::Type(_, t) => (**t).to_owned(),
     });
@@ -121,7 +130,7 @@ fn rpc_impl(
         return_type
     };
     let json_inner_type = extract_json_inner_type(&return_type);
-    let result_extractor = if json_inner_type.is_some() || type_override.is_some() {
+    let result_extractor = if json_inner_type.is_some() || return_override.is_some() {
         Ident::new("json", return_type.span())
     } else {
         Ident::new("text", return_type.span())
@@ -164,7 +173,7 @@ fn rpc_impl(
         quote!(.body(::serde_json::to_string(#name)))
     } else if let Some(text_arg) = args.text_arg {
         let name = text_arg.pat;
-        quote!(.body(#name.to_string()))
+        quote!(.body(#name.as_ref()))
     } else {
         quote!()
     };
@@ -174,12 +183,12 @@ fn rpc_impl(
         quote!(#path)
     };
 
-    quote! {
+    Ok(quote! {
         #[cfg(not(target_arch = "wasm32"))]
         #handler
 
         #[cfg(target_arch = "wasm32")]
-        #vis async fn #ident(#(#client_signature),*) -> Result<#return_type, ::reqwasm::Error> {
+        #vis async fn #ident(#(#client_signature),*) -> ::std::result::Result<#return_type, ::reqwasm::Error> {
             #query_binding
             ::reqwasm::http::Request::#method(#path)
                 #body
@@ -188,45 +197,6 @@ fn rpc_impl(
                 .#result_extractor()
                 .await
         }
-    }
-}
-
-fn method_and_path(args: &[NestedMeta]) -> (Ident, String) {
-    const METHODS: &[&str] = &["get", "post", "put", "delete", "patch"];
-
-    args.iter()
-        .find_map(|meta| match meta {
-            NestedMeta::Meta(Meta::List(MetaList {
-                path: Path { segments, .. },
-                nested,
-                ..
-            })) if segments.len() == 1
-                && METHODS.contains(&segments[0].ident.to_string().as_str())
-                && nested.len() == 1 =>
-            {
-                Some(match &nested[0] {
-                    NestedMeta::Lit(Lit::Str(path)) => (segments[0].ident.clone(), path.value()),
-                    _ => panic!("Invalid api path"),
-                })
-            }
-            _ => None,
-        })
-        .expect("Missing method and path from rpc macro")
-}
-
-fn type_override(args: &[NestedMeta]) -> Option<Path> {
-    args.iter().find_map(|meta| match meta {
-        NestedMeta::Meta(Meta::List(MetaList {
-            path: Path { segments, .. },
-            nested,
-            ..
-        })) if segments.len() == 1 && segments[0].ident == "returns" && nested.len() == 1 => {
-            Some(match &nested[0] {
-                NestedMeta::Meta(Meta::Path(path)) => path.to_owned(),
-                _ => panic!("Invalid returns clause"),
-            })
-        }
-        _ => None,
     })
 }
 
@@ -360,7 +330,7 @@ fn transform_args(args: &Punctuated<FnArg, Comma>) -> TransformedArgs {
         }) = &*arg.ty
         {
             if segments.last().unwrap().ident == "String" {
-                let ty = parse_quote!(&str);
+                let ty = parse_quote!(impl AsRef<str>);
                 arg.ty = Box::new(ty);
                 text_arg = Some(arg.clone());
                 transformed_signature.push(arg);
@@ -400,5 +370,69 @@ impl Parse for AttrArgs {
         }
 
         Ok(AttrArgs(metas))
+    }
+}
+
+#[derive(Debug)]
+struct RpcSignature {
+    pub name: Ident,
+    pub path: Option<Vec<(Ident, Type)>>,
+    pub query: Option<(Ident, Type)>,
+    pub body: Option<Ident>,
+    pub json: Option<(Ident, Type)>,
+    pub return_type: Type,
+}
+
+impl TryFrom<Signature> for RpcSignature {
+    type Error = syn::Error;
+
+    fn try_from(value: Signature) -> Result<Self, Self::Error> {
+        let args: Vec<Argument> = value
+            .inputs
+            .into_iter()
+            .map(|arg| arg.try_into())
+            .collect::<Result<_, _>>()?;
+        let ret = {
+            let span = value.output.span();
+            match value.output {
+                ReturnType::Type(_, ty) => Ok(ty),
+                ReturnType::Default => {
+                    Err(syn::Error::new(span, "Rpc functions must have a return"))
+                }
+            }
+        }?;
+
+        let mut signature = RpcSignature {
+            name: value.ident,
+            path: None,
+            query: None,
+            body: None,
+            json: None,
+            return_type: *ret,
+        };
+
+        for arg in args {
+            match arg {
+                Argument::Json { name, inner_type } => {
+                    signature.json = Some((name, inner_type));
+                }
+                Argument::Query { name, inner_type } => {
+                    signature.query = Some((name, inner_type));
+                }
+                Argument::Path { inner_types } => {
+                    signature.path = Some(inner_types);
+                }
+                Argument::Body { name } => {
+                    signature.body = Some(name);
+                }
+                Argument::Ignored => {}
+            }
+        }
+
+        if signature.body.is_some() && signature.json.is_some() {
+            signature.body = None;
+        }
+
+        Ok(signature)
     }
 }
