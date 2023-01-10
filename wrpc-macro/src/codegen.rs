@@ -1,5 +1,6 @@
-use quote::{quote, quote_spanned, ToTokens};
-use syn::spanned::Spanned;
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote, quote_spanned, ToTokens};
+use syn::{spanned::Spanned, Visibility};
 
 use crate::{argument::ArgumentType, attr::RpcAttribute, RpcSignature};
 
@@ -17,7 +18,7 @@ impl ToTokens for ArgumentType {
 }
 
 impl RpcSignature {
-    pub fn to_tokens(&self, options: &RpcAttribute) -> proc_macro2::TokenStream {
+    pub fn to_tokens(&self, options: &RpcAttribute, vis: &Visibility) -> proc_macro2::TokenStream {
         let Self {
             name, return_type, ..
         } = self;
@@ -39,28 +40,59 @@ impl RpcSignature {
         println!("{options:?}");
         let return_type = options.return_override.as_ref().unwrap_or(return_type);
 
-        let sig = quote!(#name(#(#args),*) -> ::wrpc::Result<#return_type>);
-        let body = self.client_body(options);
+        let name = format_ident!("call_{name}");
+        let sig = quote!(#vis async fn #name(#(#args),*) -> ::wrpc::Result<#return_type>);
+        let wasm_body = self.wasm_body(options);
+        let reqwest_body = self.reqwest_body(options);
 
         quote! {
+            #[cfg(target_arch = "wasm32")]
             #sig {
-                #body
+                #wasm_body
+            }
+
+            #[cfg(not(target_arch = "wasm32"))]
+            #sig {
+                #reqwest_body
             }
         }
     }
 
-    pub fn client_body(&self, options: &RpcAttribute) -> proc_macro2::TokenStream {
+    pub fn wasm_body(&self, options: &RpcAttribute) -> proc_macro2::TokenStream {
+        let (path, request_signature) = self.request_signature(options);
+        let method = &options.method;
+
+        quote! {
+            ::reqwasm::http::Request::#method(#path)
+                #request_signature
+        }
+    }
+
+    pub fn reqwest_body(&self, options: &RpcAttribute) -> proc_macro2::TokenStream {
+        let (path, request_signature) = self.request_signature(options);
+        let method = &options.method;
+
+        quote! {
+            let client = ::reqwest::Client::new();
+            client.#method(#path)
+                #request_signature
+        }
+    }
+
+    fn request_signature(&self, options: &RpcAttribute) -> (TokenStream, TokenStream) {
         let RpcAttribute {
-            method,
             path,
             return_override,
+            ..
         } = options;
 
+        let mut segments = vec![];
         let mut path = path
             .split('/')
             .map(|segment| {
                 if let Some(segment) = segment.strip_prefix(':') {
-                    format!("{{{segment}}}")
+                    segments.push(format_ident!("{segment}"));
+                    "{}".to_string()
                 } else {
                     segment.to_string()
                 }
@@ -69,14 +101,18 @@ impl RpcSignature {
             .join("/");
 
         let query_binding = if let Some((name, _)) = &self.query {
-            path += "?{__query}";
-            quote!(let __query = ::serde_qs::to_string(#name);)
+            path += "?{}";
+            Some(quote!(::serde_qs::to_string(#name).unwrap()))
         } else {
-            quote!()
+            None
         };
 
-        let path = if self.query.is_some() || self.path.is_some() {
-            quote!(&::std::format!(#path))
+        let path = if !segments.is_empty() || query_binding.is_some() {
+            let mut segments = quote!(#(,#segments)*);
+            if let Some(query_binding) = query_binding {
+                segments.extend(quote!(,#query_binding));
+            }
+            quote!(&::std::format!(#path #segments))
         } else {
             quote!(#path)
         };
@@ -84,7 +120,7 @@ impl RpcSignature {
         let body = if let Some(name) = &self.body {
             quote!(.body(::std::string::ToString::to_string(#name)))
         } else if let Some((name, _)) = &self.json {
-            quote!(.body(::serde_json::to_string(#name)))
+            quote!(.body(::serde_json::to_string(#name).unwrap()))
         } else {
             quote!()
         };
@@ -97,14 +133,15 @@ impl RpcSignature {
             quote_spanned!(self.return_type.span() => .text())
         };
 
-        quote! {
-            #query_binding
-            ::reqwasm::http::Request::#method(#path)
+        (
+            path,
+            quote! {
                 #body
                 .send()
                 .await?
                 #result_extractor
                 .await
-        }
+            },
+        )
     }
 }

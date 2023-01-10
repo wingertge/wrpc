@@ -8,6 +8,7 @@
 //! ```
 //! # use axum::{Json, extract::Path};
 //! # use wrpc_macro::rpc;
+//! # #[derive(serde::Serialize, serde::Deserialize)]
 //! # struct User;
 //!
 //! #[rpc(get("/api/user/:id"))]
@@ -23,7 +24,8 @@
 //! ```
 //! # #[derive(serde::Serialize, serde::Deserialize)]
 //! # struct User;
-//! pub async fn get_user(id: u32) -> Result<User, reqwasm::Error> {
+//!
+//! pub async fn calL_get_user(id: u32) -> Result<User, reqwasm::Error> {
 //!     reqwasm::http::Request::get(&format!("/api/user/{id}"))
 //!         .send()
 //!         .await?
@@ -61,6 +63,7 @@
 //! use wrpc::rpc;
 //! # #[derive(serde::Serialize, serde::Deserialize)]
 //! # struct User;
+//! #[derive(serde::Serialize, serde::Deserialize)]
 //! struct UpdateQuery {
 //!    force: bool
 //! }
@@ -79,4 +82,7 @@
 
 pub use wrpc_macro::rpc;
 
+#[cfg(target_arch = "wasm32")]
 pub type Result<T> = std::result::Result<T, ::reqwasm::Error>;
+#[cfg(not(target_arch = "wasm32"))]
+pub type Result<T> = std::result::Result<T, ::reqwest::Error>;

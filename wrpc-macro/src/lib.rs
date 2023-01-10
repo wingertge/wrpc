@@ -20,6 +20,7 @@ mod test;
 /// ```
 /// # use axum::{Json, extract::Path};
 /// # use wrpc_macro::rpc;
+/// # #[derive(serde::Serialize, serde::Deserialize)]
 /// # struct User;
 ///
 /// #[rpc(get("/api/user/:id"))]
@@ -35,7 +36,7 @@ mod test;
 /// ```
 /// # #[derive(serde::Serialize, serde::Deserialize)]
 /// # struct User;
-/// pub async fn get_user(id: u32) -> Result<User, reqwasm::Error> {
+/// pub async fn call_get_user(id: u32) -> Result<User, reqwasm::Error> {
 ///     reqwasm::http::Request::get(&format!("/api/user/{id}"))
 ///         .send()
 ///         .await?
@@ -83,14 +84,13 @@ fn rpc_impl(
     let sig: RpcSignature = handler.sig.clone().try_into()?;
     let options = syn::parse2(attr)?;
 
-    let client_fn = sig.to_tokens(&options);
+    let client_fn = sig.to_tokens(&options, vis);
 
     let tokens_new = quote! {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(any(not(target_arch = "wasm32"), not(client)))]
         #handler
 
-        #[cfg(target_arch = "wasm32")]
-        #vis async fn #client_fn
+        #client_fn
     };
 
     Ok(tokens_new)
