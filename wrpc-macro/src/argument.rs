@@ -65,10 +65,10 @@ impl TryFrom<Box<Pat>> for ArgumentName {
         match *pat {
             Pat::Ident(ident) => Ok(Self::Single(ident.ident)),
             Pat::TupleStruct(tuple) => {
-                let elems = if let Some(Pat::Tuple(tuple)) = tuple.pat.elems.first() {
+                let elems = if let Some(Pat::Tuple(tuple)) = tuple.elems.first() {
                     &tuple.elems
                 } else {
-                    &tuple.pat.elems
+                    &tuple.elems
                 };
                 if elems.len() == 1 {
                     let name = match elems.first().unwrap() {

@@ -11,7 +11,7 @@ pub struct RpcAttribute {
 
 impl Parse for RpcAttribute {
     fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let options = input.parse_terminated::<_, Token![,]>(AttributeOption::parse)?;
+        let options = input.parse_terminated(AttributeOption::parse, Token![,])?;
         let (method, path, return_override) = options
             .into_iter()
             .map(|option| match option {
